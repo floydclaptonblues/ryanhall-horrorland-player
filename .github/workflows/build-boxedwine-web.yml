@@ -1,0 +1,61 @@
+name: Build BoxedWine Web (WASM)
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Official Emscripten toolchain container (has emcc etc.)
+    container: emscripten/emsdk:latest
+
+    steps:
+      - name: Checkout this repo (for artifacts)
+        uses: actions/checkout@v4
+
+      - name: Checkout BoxedWine source
+        uses: actions/checkout@v4
+        with:
+          repository: danoon2/Boxedwine
+          path: Boxedwine-src
+
+      - name: Show tree (sanity)
+        run: |
+          ls -la
+          echo "----"
+          ls -la Boxedwine-src
+          echo "----"
+          ls -la Boxedwine-src/project || true
+          echo "----"
+          ls -la Boxedwine-src/project/emscripten || true
+
+      - name: Build (try buildjs.sh, else make)
+        shell: bash
+        working-directory: Boxedwine-src/project/emscripten
+        run: |
+          set -euxo pipefail
+          # Emscripten env is preloaded in this container, but ensure basic tools
+          which emcc
+          chmod +x buildjs.sh || true
+          if [ -f "./buildjs.sh" ]; then
+            ./buildjs.sh
+          else
+            # Some revisions use a Makefile instead of buildjs.sh
+            make -j"$(nproc)" || make
+          fi
+
+      - name: Collect web artifacts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /out
+          # Find the produced JS/WASM/DATA anywhere under the source tree
+          find Boxedwine-src -type f \( -name 'boxedwine.js' -o -name 'boxedwine.wasm' -o -name 'boxedwine.data' \) -print -exec cp {} /out/ \;
+          echo "Collected:"
+          ls -la /out
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: boxedwine-web-runtime
+          path: /out/*
+          if-no-files-found: error
